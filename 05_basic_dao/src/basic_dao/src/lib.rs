@@ -1,13 +1,13 @@
-mod types;
-mod service;
 mod env;
-mod init;
 mod heartbeat;
+mod init;
+mod service;
+mod types;
 
-use ic_cdk_macros::*;
-use std::cell::RefCell;
 use crate::service::BasicDaoService;
 use crate::types::*;
+use ic_cdk_macros::*;
+use std::cell::RefCell;
 
 thread_local! {
     static SERVICE: RefCell<BasicDaoService> = RefCell::default();
@@ -67,9 +67,17 @@ fn update_system_params(payload: UpdateSystemParamsPayload) {
     SERVICE.with(|service| service.borrow_mut().update_system_params(payload))
 }
 
-ic_cdk::export::candid::export_service!();
+// ic_cdk::export::candid::export_service!();
 
-#[ic_cdk_macros::query(name = "__get_candid_interface_tmp_hack")]
-fn export_candid() -> String {
-    __export_service()
+// #[ic_cdk_macros::query(name = "__get_candid_interface_tmp_hack")]
+// fn export_candid() -> String {
+//     __export_service()
+// }
+
+// =========== 打印 did  ===========
+// cargo test -- --nocapture
+#[test]
+fn print_did() {
+    ic_cdk::export::candid::export_service!();
+    std::println!("{}", __export_service());
 }

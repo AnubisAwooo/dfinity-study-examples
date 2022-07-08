@@ -1,8 +1,7 @@
+use crate::env::{EmptyEnvironment, Environment};
 use crate::types::*;
-use crate::env::{Environment, EmptyEnvironment};
 use ic_cdk::export::Principal;
 use std::collections::HashMap;
-
 
 /// Implements the Basic DAO interface
 pub struct BasicDaoService {
@@ -27,8 +26,18 @@ impl Default for BasicDaoService {
 
 impl From<BasicDaoStableStorage> for BasicDaoService {
     fn from(stable: BasicDaoStableStorage) -> BasicDaoService {
-        let accounts = stable.accounts.clone().into_iter().map(|a| (a.owner, a.tokens)).collect();
-        let proposals = stable.proposals.clone().into_iter().map(|p| (p.id, p)).collect();
+        let accounts = stable
+            .accounts
+            .clone()
+            .into_iter()
+            .map(|a| (a.owner, a.tokens))
+            .collect();
+        let proposals = stable
+            .proposals
+            .clone()
+            .into_iter()
+            .map(|p| (p.id, p))
+            .collect();
 
         BasicDaoService {
             env: Box::new(EmptyEnvironment {}),
@@ -67,7 +76,10 @@ impl BasicDaoService {
     /// Return the account balance of the caller
     pub fn account_balance(&self) -> Tokens {
         let caller = self.env.caller();
-        self.accounts.get(&caller).cloned().unwrap_or_else(|| Default::default())
+        self.accounts
+            .get(&caller)
+            .cloned()
+            .unwrap_or_else(|| Default::default())
     }
 
     /// Lists all accounts
@@ -85,7 +97,7 @@ impl BasicDaoService {
     /// vote "yes" on the proposal, the given method will be called with the given method
     /// args on the given canister.
     pub fn submit_proposal(&mut self, payload: ProposalPayload) -> Result<u64, String> {
-        self.deduct_proposal_submission_deposit()?;
+        self.deduct_proposal_submission_deposit()?; // 先扣除保证金
 
         let proposal_id = self.next_proposal_id;
         self.next_proposal_id += 1;
@@ -119,15 +131,21 @@ impl BasicDaoService {
     pub fn vote(&mut self, args: VoteArgs) -> Result<ProposalState, String> {
         let caller = self.env.caller();
 
-        let proposal = self.proposals
+        let proposal = self
+            .proposals
             .get_mut(&args.proposal_id)
             .ok_or_else(|| format!("No proposal with ID {} exists", args.proposal_id))?;
 
         if proposal.state != ProposalState::Open {
-            return Err(format!("Proposal {} is not open for voting", args.proposal_id))
+            return Err(format!(
+                "Proposal {} is not open for voting",
+                args.proposal_id
+            ));
         }
 
-        let voting_tokens = self.accounts.get(&caller)
+        let voting_tokens = self
+            .accounts
+            .get(&caller)
             .ok_or_else(|| "Caller does not have any tokens to vote with".to_string())?
             .clone();
 
@@ -146,6 +164,7 @@ impl BasicDaoService {
             // Refund the proposal deposit when the proposal is accepted
             if let Some(account) = self.accounts.get_mut(&proposal.proposer) {
                 *account += self.system_params.proposal_submission_deposit.clone();
+                // 成功了要还钱
             }
 
             proposal.state = ProposalState::Accepted;
@@ -163,6 +182,7 @@ impl BasicDaoService {
     /// Only callable via proposal execution
     pub fn update_system_params(&mut self, payload: UpdateSystemParamsPayload) {
         if self.env.caller() != self.env.canister_id() {
+            // 不是指定的 canister 不可以调用
             return;
         }
 

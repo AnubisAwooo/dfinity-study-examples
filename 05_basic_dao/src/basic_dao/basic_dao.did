@@ -1,0 +1,52 @@
+type Account = record { owner : principal; tokens : Tokens };
+type Proposal = record {
+    id : nat64;
+    votes_no : Tokens;
+    voters : vec principal;
+    state : ProposalState;
+    timestamp : nat64;
+    proposer : principal;
+    votes_yes : Tokens;
+    payload : ProposalPayload;
+};
+type ProposalPayload = record {
+    method : text;
+    canister_id : principal;
+    message : vec nat8;
+};
+type ProposalState = variant {
+    Failed : text;
+    Open;
+    Executing;
+    Rejected;
+    Succeeded;
+    Accepted;
+};
+type Result = variant { Ok : nat64; Err : text };
+type Result_1 = variant { Ok; Err : text };
+type Result_2 = variant { Ok : ProposalState; Err : text };
+type SystemParams = record {
+    transfer_fee : Tokens;
+    proposal_vote_threshold : Tokens;
+    proposal_submission_deposit : Tokens;
+};
+type Tokens = record { amount_e8s : nat64 };
+type TransferArgs = record { to : principal; amount : Tokens };
+type UpdateSystemParamsPayload = record {
+    transfer_fee : opt Tokens;
+    proposal_vote_threshold : opt Tokens;
+    proposal_submission_deposit : opt Tokens;
+};
+type Vote = variant { No; Yes };
+type VoteArgs = record { vote : Vote; proposal_id : nat64 };
+service : {
+    account_balance : () -> (Tokens) query;
+    get_proposal : (nat64) -> (opt Proposal) query;
+    get_system_params : () -> (SystemParams) query;
+    list_accounts : () -> (vec Account) query;
+    list_proposals : () -> (vec Proposal) query;
+    submit_proposal : (ProposalPayload) -> (Result) query;
+    transfer : (TransferArgs) -> (Result_1);
+    update_system_params : (UpdateSystemParamsPayload) -> ();
+    vote : (VoteArgs) -> (Result_2);
+}
