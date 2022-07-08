@@ -1,7 +1,6 @@
 # Tokens Transfer
 
-Tokens Transfer shows how a canister can interact with the ledger and make transfers from its account
-to other accounts.
+Tokens Transfer shows how a canister can interact with the ledger and make transfers from its account to other accounts.
 
 
 ## Interface

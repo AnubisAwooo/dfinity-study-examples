@@ -1,6 +1,11 @@
 {
   "version": 1,
   "canisters": {
+    "ledger": {
+      "type": "custom",
+      "wasm": "ledger/ledger.wasm",
+      "candid": "ledger/ledger.public.did"
+    },
     "tokens_transfer": {
       "build": [
         "cargo build --target wasm32-unknown-unknown --package tokens_transfer --release"

@@ -1,10 +1,11 @@
 [package]
 name = "tokens_transfer"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 ## See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
+path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [build-dependencies]
@@ -12,8 +13,8 @@ candid = "0.7.4"
 
 [dependencies]
 candid = "0.7.4"
-ic-cdk = "0.3.3"
-ic-cdk-macros = "0.3.3"
+ic-cdk = "0.5.2"
+ic-cdk-macros = "0.5.2"
 ic-ledger-types = "0.1.0"
 serde = "1.0.126"
 serde_derive = "1.0.126"
