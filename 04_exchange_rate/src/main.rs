@@ -51,22 +51,27 @@ pub struct CanisterHttpResponsePayload {
     pub body: Vec<u8>,
 }
 
+// 响应的最大数据量
 // How many data point can be returned as maximum.
-// Given that 2MB is max-allow cansiter response size, and each <Timestamp, Rate> pair
+// Given that 2MB is max-allow canister response size, and each <Timestamp, Rate> pair
 // should be less that 20 bytes. Maximum data points could be returned for each
 // call can be as many as 2MB / 20B = 1000000.
-pub const MAX_DATA_PONTS_CANISTER_RESPONSE: usize = 1000000;
+pub const MAX_DATA_POINTS_CANISTER_RESPONSE: usize = 1000000;
 
+// 粒度间隔
 // Remote fetch interval in secs. It is only the canister returned interval
 // that is dynamic according to the data size needs to be returned.
 pub const REMOTE_FETCH_GRANULARITY: u64 = 60;
 
+// 心跳间隔
 // For how many rounds of heartbeat, make a http_request call.
 pub const RATE_LIMIT_FACTOR: usize = 5;
 
+// 每次调用接口获取的数据量
 // How many data points in each Coinbase API call. Maximum allowed is 300
 pub const DATA_POINTS_PER_API: u64 = 200;
 
+// 最大响应数据量
 // Maximum raw Coinbase API response size. This field is used by IC to calculate circles cost per HTTP call.
 // Here is how this number is derived:
 // Each Coinbase API call return an array of array, and each sub-array look like below:
@@ -78,11 +83,12 @@ pub const DATA_POINTS_PER_API: u64 = 200;
 //     9.54,
 //     4857.1892
 // ],
-// Each field of this sub-arry takes less than 10 bytes. Then,
+// Each field of this sub-array takes less than 10 bytes. Then,
 // 10 (bytes per field) * 6 (fields per timestamp) * 200 (timestamps)
 pub const MAX_RESPONSE_BYTES: u64 = 10 * 6 * DATA_POINTS_PER_API;
 
-pub const RESPONSE_HEADERS_SANTIZATION: [&'static str; 7] = [
+// 还不知道干嘛的
+pub const RESPONSE_HEADERS_SANITIZATION: [&'static str; 7] = [
     "Date",                    // DateTime of the request is made
     "CF-Cache-Status",         // CloudFront caching status
     "CF-RAY",                  // CloudFront custom Id
@@ -93,11 +99,12 @@ pub const RESPONSE_HEADERS_SANTIZATION: [&'static str; 7] = [
 ];
 
 thread_local! {
-    pub static FETCHED: RefCell<HashMap<Timestamp, Rate>>  = RefCell::new(HashMap::new());
-    pub static REQUESTED: RefCell<HashSet<Timestamp>> = RefCell::new(HashSet::new());
-    pub static RATE_COUNTER: RefCell<usize> = RefCell::new(0);
+    pub static FETCHED: RefCell<HashMap<Timestamp, Rate>>  = RefCell::new(HashMap::new()); // ? 取得的数据？
+    pub static REQUESTED: RefCell<HashSet<Timestamp>> = RefCell::new(HashSet::new()); // ? 请求的数据？
+    pub static RATE_COUNTER: RefCell<usize> = RefCell::new(0); // 心跳计数
 }
 
+// 心跳函数
 // Canister heartbeat. Process one item in queue
 #[heartbeat]
 async fn heartbeat() {
@@ -110,15 +117,14 @@ async fn heartbeat() {
         counter.replace((state + 1) % RATE_LIMIT_FACTOR);
     });
     if should_fetch {
-        get_next_rate().await;
+        get_next_rate().await; // 每 5 次心跳获取一次数据
     }
 }
 
-/*
-Get rates for a time range defined by start time and end time. This function can be invoked
-as HTTP update call.
-*/
+// 获取指定时间范围的数据
+// Get rates for a time range defined by start time and end time. This function can be invoked as HTTP update call.
 #[update]
+#[candid::candid_method(update)]
 async fn get_rates(range: TimeRange) -> RatesWithInterval {
     // round down start time and end time to the minute (chop off seconds), to be checked in the hashmap
     let start_min = range.start / REMOTE_FETCH_GRANULARITY;
@@ -140,7 +146,7 @@ async fn get_rates(range: TimeRange) -> RatesWithInterval {
                 ic_cdk::api::print(format!("Did not find {} in map!", requested));
                 // asynchoronously request downloads for unavailable ranges
 
-                add_job_to_job_set(requested);
+                add_job_to_job_set(requested); // 该时间戳没有数据，加入请求队列
             }
         }
     });
@@ -161,7 +167,7 @@ fn sample_with_interval(fetched: HashMap<Timestamp, Rate>) -> RatesWithInterval 
         60 * 24, // 1 data point every day
     ];
     for i in interval_options {
-        if fetched.len() / i < MAX_DATA_PONTS_CANISTER_RESPONSE {
+        if fetched.len() / i < MAX_DATA_POINTS_CANISTER_RESPONSE {
             return RatesWithInterval {
                 interval: i * REMOTE_FETCH_GRANULARITY as usize,
                 rates: fetched
@@ -171,9 +177,10 @@ fn sample_with_interval(fetched: HashMap<Timestamp, Rate>) -> RatesWithInterval 
             };
         }
     }
-    panic!("This shouldn't be happening! Couldn't find an inteval that can keep total data points count in {}.", MAX_DATA_PONTS_CANISTER_RESPONSE);
+    panic!("This shouldn't be happening! Couldn't find an interval that can keep total data points count in {}.", MAX_DATA_POINTS_CANISTER_RESPONSE);
 }
 
+// 添加时间戳到请求队列中
 fn add_job_to_job_set(job: Timestamp) -> () {
     // Since Coinbase API allows DATA_POINTS_PER_API data points (5 hours of data) per API call,
     // and the response size is roughly 14KB, which is way below max_response_size,
@@ -181,14 +188,13 @@ fn add_job_to_job_set(job: Timestamp) -> () {
     REQUESTED.with(|set| {
         let mut set = set.borrow_mut();
         let normalized_job = job / (REMOTE_FETCH_GRANULARITY * DATA_POINTS_PER_API)
-            * (REMOTE_FETCH_GRANULARITY * DATA_POINTS_PER_API);
+            * (REMOTE_FETCH_GRANULARITY * DATA_POINTS_PER_API); // 标准化时间戳
         set.insert(normalized_job);
     });
 }
 
-/*
-Triggered by heartbeat() function to pick up the next job in the pipe for remote service call.
- */
+// 受心跳触发调用获取远程服务数据
+// Triggered by heartbeat() function to pick up the next job in the pipe for remote service call.
 async fn get_next_rate() {
     let mut job_id: u64 = 0;
 
@@ -228,19 +234,17 @@ async fn get_next_rate() {
         });
     });
     if job_id != 0 {
-        get_rate(job_id).await;
+        get_rate(job_id).await; // id 就是对应时间戳的价格
     }
 }
 
-/*
-A function to call IC http_request function with sample interval of REMOTE_FETCH_GRANULARITY seconds. Each API
-call fetches DATA_POINTS_PER_API data points, which is equivalent of DATA_POINTS_PER_API minutes of data.
- */
-async fn get_rate(job: Timestamp) {
-    let start_timestamp = job;
-    let end_timestamp = job + REMOTE_FETCH_GRANULARITY * DATA_POINTS_PER_API;
+#[update]
+#[candid::candid_method(update)]
+async fn get_rates2() -> String {
+    let start_timestamp = 1657268880u64;
+    let end_timestamp = 1657268880u64;
 
-    let host = "api.pro.coinbase.com";
+    let host = "api.exchange.coinbase.com";
     let mut host_header = host.clone().to_owned();
     host_header.push_str(":443");
     // prepare system http_request call
@@ -257,8 +261,9 @@ async fn get_rate(job: Timestamp) {
     let url = format!("https://{host}/products/ICP-USD/candles?granularity={REMOTE_FETCH_GRANULARITY}&start={start_timestamp}&end={end_timestamp}");
     ic_cdk::api::print(url.clone());
 
+    // 构造请求头
     let request = CanisterHttpRequestArgs {
-        url: url,
+        url,
         http_method: HttpMethod::GET,
         body: None,
         max_response_bytes: Some(MAX_RESPONSE_BYTES),
@@ -266,9 +271,13 @@ async fn get_rate(job: Timestamp) {
         headers: request_headers,
     };
 
-    let body = candid::utils::encode_one(&request).unwrap();
-    ic_cdk::api::print(format!("Making IC http_request call {} now.", job));
+    let body = candid::utils::encode_one(&request).unwrap(); // 包装请求头
+    ic_cdk::api::print(format!(
+        "Making IC http_request call {} now.",
+        start_timestamp
+    ));
 
+    // 发起调用
     match ic_cdk::api::call::call_raw(
         Principal::management_canister(),
         "http_request",
@@ -278,6 +287,61 @@ async fn get_rate(job: Timestamp) {
     .await
     {
         Ok(result) => {
+            // 解码结果
+            String::from_utf8(result).unwrap()
+        }
+        Err((r, m)) => format!("code: {:?} error: {}", r, m),
+    }
+}
+
+// 获取某时间对应的数据
+// A function to call IC http_request function with sample interval of REMOTE_FETCH_GRANULARITY seconds. Each API
+// call fetches DATA_POINTS_PER_API data points, which is equivalent of DATA_POINTS_PER_API minutes of data.
+async fn get_rate(job: Timestamp) {
+    let start_timestamp = job;
+    let end_timestamp = job + REMOTE_FETCH_GRANULARITY * DATA_POINTS_PER_API;
+
+    let host = "api.exchange.coinbase.com";
+    let mut host_header = host.clone().to_owned();
+    host_header.push_str(":443");
+    // prepare system http_request call
+    let request_headers = vec![
+        HttpHeader {
+            name: "Host".to_string(),
+            value: host_header,
+        },
+        HttpHeader {
+            name: "User-Agent".to_string(),
+            value: "exchange_rate_canister".to_string(),
+        },
+    ];
+    let url = format!("https://{host}/products/ICP-USD/candles?granularity={REMOTE_FETCH_GRANULARITY}&start={start_timestamp}&end={end_timestamp}");
+    ic_cdk::api::print(url.clone());
+
+    // 构造请求头
+    let request = CanisterHttpRequestArgs {
+        url,
+        http_method: HttpMethod::GET,
+        body: None,
+        max_response_bytes: Some(MAX_RESPONSE_BYTES),
+        transform_method_name: Some("transform".to_string()),
+        headers: request_headers,
+    };
+
+    let body = candid::utils::encode_one(&request).unwrap(); // 包装请求头
+    ic_cdk::api::print(format!("Making IC http_request call {} now.", job));
+
+    // 发起调用
+    match ic_cdk::api::call::call_raw(
+        Principal::management_canister(),
+        "http_request",
+        &body[..],
+        0,
+    )
+    .await
+    {
+        Ok(result) => {
+            // 解码结果
             // decode the result
             let decoded_result: CanisterHttpResponsePayload =
                 candid::utils::decode_one(&result).expect("IC http_request failed!");
@@ -286,7 +350,7 @@ async fn get_rate(job: Timestamp) {
                 let mut fetched = fetched.borrow_mut();
                 let decoded_body = String::from_utf8(decoded_result.body)
                     .expect("Remote service response is not UTF-8 encoded.");
-                decode_body_to_rates(&decoded_body, &mut fetched);
+                decode_body_to_rates(&decoded_body, &mut fetched); // 解码响应体数据
             });
         }
         Err((r, m)) => {
@@ -315,7 +379,7 @@ async fn transform(raw: CanisterHttpResponsePayload) -> CanisterHttpResponsePayl
     let mut sanitized = raw.clone();
     let mut processed_headers = vec![];
     for header in raw.headers.iter() {
-        if !RESPONSE_HEADERS_SANTIZATION.contains(&header.name.as_str()) {
+        if !RESPONSE_HEADERS_SANITIZATION.contains(&header.name.as_str()) {
             processed_headers.insert(0, header.clone());
         }
     }
@@ -334,7 +398,14 @@ fn post_upgrade() {
     FETCHED.with(|fetched| *fetched.borrow_mut() = old_fetched);
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn main() {}
+
+#[cfg(not(any(target_arch = "wasm32", test)))]
+fn main() {
+    ic_cdk::export::candid::export_service!();
+    std::println!("{}", __export_service());
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,9 @@
+type RatesWithInterval = record {
+  interval : nat64;
+  rates : vec record { nat64; float32 };
+};
+type TimeRange = record { end : nat64; start : nat64 };
+service : {
+  get_rates : (TimeRange) -> (RatesWithInterval);
+  get_rates2 : () -> (text);
+}

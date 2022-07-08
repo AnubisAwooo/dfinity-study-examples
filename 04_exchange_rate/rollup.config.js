@@ -42,28 +42,28 @@ function initCanisterIds() {
 const { canisterIds, network } = initCanisterIds();
 
 function serve() {
-  let server;
+	let server;
 
-  function toExit() {
-    if (server) server.kill(0);
-  }
+	function toExit() {
+		if (server) server.kill(0);
+	}
 
-  return {
-    writeBundle() {
-      if (server) return;
-      server = require("child_process").spawn(
-        "npm",
-        ["run", "start", "--", "--dev"],
-        {
-          stdio: ["ignore", "inherit", "inherit"],
-          shell: true,
-        }
-      );
+	return {
+		writeBundle() {
+			if (server) return;
+			server = require("child_process").spawn(
+				"npm",
+				["run", "start", "--", "--dev"],
+				{
+					stdio: ["ignore", "inherit", "inherit"],
+					shell: true,
+				}
+			);
 
-      process.on("SIGTERM", toExit);
-      process.on("exit", toExit);
-    },
-  };
+			process.on("SIGTERM", toExit);
+			process.on("exit", toExit);
+		},
+	};
 }
 
 export default {
@@ -98,36 +98,36 @@ export default {
 
 		replace(
 			Object.assign(
-			  {
-				preventAssignment: false,
-				"process.env.DFX_NETWORK": JSON.stringify(network),
-				"process.env.NODE_ENV": JSON.stringify(
-					network === "ic" ? "production" : "development"
-				),
-			  },
-			  ...Object.keys(canisterIds)
-				.filter((canisterName) => canisterName !== "__Candid_UI")
-				.map((canisterName) => ({
-				  ["process.env." + canisterName.toUpperCase() + "_CANISTER_ID"]:
-					JSON.stringify(canisterIds[canisterName][network]),
-				}))
-			)
-		  ),
+				{
+					preventAssignment: false,
+					"process.env.DFX_NETWORK": JSON.stringify(network),
+					"process.env.NODE_ENV": JSON.stringify(
+						network === "ic" ? "production" : "development"
+					),
+				},
+				...Object.keys(canisterIds)
+					.filter((canisterName) => canisterName !== "__Candid_UI")
+					.map((canisterName) => ({
+					["process.env." + canisterName.toUpperCase() + "_CANISTER_ID"]:
+						JSON.stringify(canisterIds[canisterName][network]),
+					}))
+				)
+			),
 
 		commonjs(),
 
 		terser()
 	],
     onwarn: function (warning) {
-      if (
-        [
-          'CIRCULAR_DEPENDENCY',
-          'THIS_IS_UNDEFINED',
-          'EVAL',
-        ].includes(warning.code)
-      ) {
-        return;
-      }
-      console.warn(warning.message);
+		if (
+			[
+			'CIRCULAR_DEPENDENCY',
+			'THIS_IS_UNDEFINED',
+			'EVAL',
+			].includes(warning.code)
+		) {
+			return;
+		}
+		console.warn(warning.message);
     },
 };
