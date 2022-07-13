@@ -16,7 +16,7 @@ install: clean
 
 .PHONY: init-local
 .SILENT: init-local
-init-local: 
+init-local:
 	./scripts/initalize_local_balance.sh $(II_PRINCIPAL)
 
 .PHONY: build

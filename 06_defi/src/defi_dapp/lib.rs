@@ -247,12 +247,12 @@ async fn withdraw_icp(amount: &Nat, account_id: AccountIdentifier) -> Result<Nat
         to: account_id,
         created_at_time: None,
     };
-    let icp_reciept = ic_ledger_types::transfer(ledger_canister_id, transfer_args)
+    let icp_receipt = ic_ledger_types::transfer(ledger_canister_id, transfer_args)
         .await
         .map_err(|_| WithdrawErr::TransferFailure)
         .and_then(|v| v.map_err(|_| WithdrawErr::TransferFailure));
 
-    if let Err(e) = icp_reciept {
+    if let Err(e) = icp_receipt {
         STATE.with(|s| {
             s.borrow_mut().exchange.balances.add_balance(
                 &caller,

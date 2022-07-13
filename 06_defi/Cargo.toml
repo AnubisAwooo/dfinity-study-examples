@@ -1,4 +1,2 @@
 [workspace]
-members = [
-    "src/defi_dapp",
-]
+members = ["src/defi_dapp", "src/DIP20/rust"]
