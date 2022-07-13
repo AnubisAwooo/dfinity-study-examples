@@ -6,29 +6,34 @@ use ic_cdk::caller;
 use crate::types::*;
 use crate::{utils, OrderId};
 
+// 余额模型 某个所属人 对每个币种的余额
 #[derive(Default)]
 pub struct Balances(pub HashMap<Principal, HashMap<Principal, Nat>>); // owner -> token_canister_id -> amount
-type Orders = HashMap<OrderId, Order>;
+type Orders = HashMap<OrderId, Order>; // 所有订单列表
 
+// 交易所模型
 #[derive(Default)]
 pub struct Exchange {
-    pub next_id: OrderId,
-    pub balances: Balances,
-    pub orders: Orders,
+    pub next_id: OrderId,   // 下一个订单号
+    pub balances: Balances, // 每个人的账户余额
+    pub orders: Orders,     // 所有订单
 }
 
+// 给账户增加方法
 impl Balances {
+    // 增加余额方法  所有人 目标币种 变更数量
     pub fn add_balance(&mut self, owner: &Principal, token_canister_id: &Principal, delta: Nat) {
         let balances = self.0.entry(*owner).or_insert_with(HashMap::new);
 
         if let Some(x) = balances.get_mut(token_canister_id) {
-            *x += delta;
+            *x += delta; // 如果之前有余额，修改变动
         } else {
-            balances.insert(*token_canister_id, delta);
+            balances.insert(*token_canister_id, delta); // 如果之前没有余额，新增余额
         }
     }
 
-    // Tries to substract balance from user account. Checks for overflows
+    // 减去余额的方法  返回成功或失败
+    // Tries to subtract balance from user account. Checks for overflows
     pub fn subtract_balance(
         &mut self,
         owner: &Principal,
@@ -38,9 +43,11 @@ impl Balances {
         if let Some(balances) = self.0.get_mut(owner) {
             if let Some(x) = balances.get_mut(token_canister_id) {
                 if *x >= delta {
+                    // 余额大于变动数量则减去
                     *x -= delta;
                     // no need to keep an empty token record
                     if *x == utils::zero() {
+                        // 如果减为 0 的，则删除该余额
                         balances.remove(token_canister_id);
                     }
                     return true;
@@ -54,7 +61,9 @@ impl Balances {
     }
 }
 
+// 为交易所添加方法
 impl Exchange {
+    // 获取当前调用者某个币种的余额方法
     pub fn get_balance(&self, token_canister_id: Principal) -> Nat {
         self.balances
             .0
@@ -63,6 +72,7 @@ impl Exchange {
             .map_or(utils::zero(), |v| v.to_owned())
     }
 
+    // 获取当前调用者所有余额
     pub fn get_balances(&self) -> Vec<Balance> {
         match self.balances.0.get(&caller()) {
             None => Vec::new(),
@@ -77,6 +87,7 @@ impl Exchange {
         }
     }
 
+    // 获取所有余额
     pub fn get_all_balances(&self) -> Vec<Balance> {
         self.balances
             .0
@@ -91,14 +102,17 @@ impl Exchange {
             .collect()
     }
 
+    // 查询订单
     pub fn get_order(&self, order: OrderId) -> Option<Order> {
         self.orders.get(&order).cloned()
     }
 
+    // 获取所有订单
     pub fn get_all_orders(&self) -> Vec<Order> {
         self.orders.iter().map(|(_, o)| o.clone()).collect()
     }
 
+    // 下单
     pub fn place_order(
         &mut self,
         from_token_canister_id: Principal,
@@ -108,18 +122,21 @@ impl Exchange {
     ) -> OrderPlacementReceipt {
         ic_cdk::println!("place order");
         if from_amount <= utils::zero() || to_amount <= utils::zero() {
+            // 交换数量不能小于等于 0
             return OrderPlacementReceipt::Err(OrderPlacementErr::InvalidOrder);
         }
 
         if self.check_for_sell_orders(from_token_canister_id) {
+            // 当前币种已经有卖单了，不能再下单
             return OrderPlacementReceipt::Err(OrderPlacementErr::InvalidOrder);
         }
 
         let balance = self.get_balance(from_token_canister_id);
         if balance < from_amount {
+            // 余额不足
             return OrderPlacementReceipt::Err(OrderPlacementErr::InvalidOrder);
         }
-        let id = self.next_id();
+        let id = self.next_id(); // 取得 id
         self.orders.insert(
             id,
             Order {
@@ -131,7 +148,7 @@ impl Exchange {
                 toAmount: to_amount,
             },
         );
-        self.resolve_order(id)?;
+        self.resolve_order(id)?; // ? 估计是进行订单处理的方法
 
         if let Some(o) = self.orders.get(&id) {
             OrderPlacementReceipt::Ok(Some(o.clone()))
@@ -140,16 +157,18 @@ impl Exchange {
         }
     }
 
+    // 检查当前币种的卖单
     pub fn check_for_sell_orders(&self, from_token_canister_id: Principal) -> bool {
         self.orders
             .values()
             .any(|v| (v.from == from_token_canister_id) && (v.owner == caller()))
     }
 
+    // 取消订单
     pub fn cancel_order(&mut self, order: OrderId) -> CancelOrderReceipt {
         if let Some(o) = self.orders.get(&order) {
             if o.owner == caller() {
-                self.orders.remove(&order);
+                self.orders.remove(&order); // 直接移除就算取消了
                 CancelOrderReceipt::Ok(order)
             } else {
                 CancelOrderReceipt::Err(CancelOrderErr::NotAllowed)
@@ -159,18 +178,21 @@ impl Exchange {
         }
     }
 
+    // 处理订单？
     fn resolve_order(&mut self, id: OrderId) -> Result<(), OrderPlacementErr> {
         ic_cdk::println!("resolve order");
-        let mut matches = Vec::new();
-        let a = self.orders.get(&id).unwrap();
+        let mut matches = Vec::new(); // 匹配的订单
+        let a = self.orders.get(&id).unwrap(); // 本订单
         for (order, b) in self.orders.iter() {
             if *order == id {
+                // 本订单不继续
                 continue;
             }
 
             if a.from == b.to && a.to == b.from {
+                // 订单类型能和本订单匹配
                 // Simplified to use multiplication from
-                // (a.fromAmount / a.toAmount) * (b.fromAmount / b.toAmount) >= 1
+                // (a.fromAmount / a.toAmount) * (b.fromAmount / b.toAmount) >= 1 // 对方的买价高于我的卖价
                 // which checks that this pair of trades is profitable.
                 if a.fromAmount.to_owned() * b.fromAmount.to_owned()
                     >= a.toAmount.to_owned() * b.toAmount.to_owned()
@@ -184,7 +206,7 @@ impl Exchange {
                         b.fromAmount,
                         b.toAmount
                     );
-                    matches.push((a.to_owned(), b.to_owned()));
+                    matches.push((a.to_owned(), b.to_owned())); // 找到的订单
                 }
             }
         }
@@ -194,11 +216,14 @@ impl Exchange {
             let (a, b) = m;
             // Check if some orders can be completed in their entirety.
             if b.fromAmount >= a.toAmount {
-                a_to_amount = a.toAmount.to_owned();
+                // 买单给的数量大于卖单需要的数量
+                a_to_amount = a.toAmount.to_owned(); // 卖单需要的数量就是卖单指定的数量
             }
             if a.fromAmount >= b.toAmount {
-                b_to_amount = b.toAmount.to_owned();
+                // 卖单给的数量大于买单需要的数量
+                b_to_amount = b.toAmount.to_owned(); // 买单需要的数量就是买单指定的数量
             }
+            // ? 看不明白这 2 个比较啥意思？
             // Check if some orders can be completed partially.
             if check_orders(
                 a.to_owned(),
@@ -290,16 +315,20 @@ impl Exchange {
     }
 }
 
+// ? 检查订单 不知道怎么使用的
 fn check_orders(
-    first: Order,
-    second: Order,
-    first_to_amount: &mut Nat,
-    second_to_amount: Nat,
+    first: Order,              // 卖单
+    second: Order,             // 买单
+    first_to_amount: &mut Nat, // 卖单想要的数量
+    second_to_amount: Nat,     // 买单想要的数量
 ) -> bool {
     if *first_to_amount == utils::zero() && second_to_amount > utils::zero() {
+        // 如果卖单没有想要的数量了，但买单还有想给的数量
         *first_to_amount = second.fromAmount;
         // Verify that we can complete the partial order with natural number tokens remaining.
         if ((first_to_amount.to_owned() * first.fromAmount) % first.toAmount) != utils::zero() {
+            // 能成交的比例
+            // 卖单想给的数量 % 买单想要的数量
             return true;
         }
     }

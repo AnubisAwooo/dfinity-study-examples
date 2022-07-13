@@ -12,6 +12,7 @@ use crate::exchange::{Balances, Exchange};
 use crate::types::*;
 use crate::{OrderId, State};
 
+// ? 持久化订单？
 #[derive(CandidType, Clone, Deserialize, Serialize)]
 pub struct StableOrder {
     pub id: OrderId,
@@ -48,6 +49,7 @@ impl From<StableOrder> for Order {
     }
 }
 
+// 持久化余额
 #[derive(CandidType, Deserialize, Serialize)]
 pub struct StableBalances(pub HashMap<Principal, HashMap<Principal, String>>); // owner -> token_canister_id -> amount
 
@@ -82,8 +84,10 @@ impl From<StableBalances> for Balances {
     }
 }
 
+// 持久化订单列表
 type StableOrders = HashMap<OrderId, StableOrder>;
 
+// 持久化交易
 #[derive(CandidType, Deserialize, Serialize)]
 pub struct StableExchange {
     pub next_id: OrderId,
@@ -119,6 +123,7 @@ impl From<StableExchange> for Exchange {
     }
 }
 
+// 持久化状态
 #[derive(CandidType, Deserialize, Serialize)]
 pub struct StableState {
     owner: Option<Principal>,

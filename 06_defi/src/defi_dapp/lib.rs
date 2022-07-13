@@ -19,12 +19,10 @@ use exchange::Exchange;
 use types::*;
 use utils::principal_to_subaccount;
 
+// ICP 费用
 const ICP_FEE: u64 = 10_000;
 
-thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::default());
-}
-
+// 系统状态
 #[derive(Default)]
 pub struct State {
     owner: Option<Principal>,
@@ -32,51 +30,60 @@ pub struct State {
     exchange: Exchange,
 }
 
+thread_local! {
+    static STATE: RefCell<State> = RefCell::new(State::default());
+}
+
+// 存钱
 #[update]
 #[candid_method(update)]
 pub async fn deposit(token_canister_id: Principal) -> DepositReceipt {
-    let caller = caller();
-    let ledger_canister_id = STATE
+    let caller = caller(); // 获取调用者
+    let ledger_canister_id = STATE // 获取 icp 所在 canister id
         .with(|s| s.borrow().ledger)
         .unwrap_or(MAINNET_LEDGER_CANISTER_ID);
 
     let amount = if token_canister_id == ledger_canister_id {
-        deposit_icp(caller).await?
+        deposit_icp(caller).await? // 如果是 icp 转账，则调用 icp 存钱接口
     } else {
-        deposit_token(caller, token_canister_id).await?
+        deposit_token(caller, token_canister_id).await? // 其他 canister 转账
     };
     STATE.with(|s| {
         s.borrow_mut()
             .exchange
             .balances
-            .add_balance(&caller, &token_canister_id, amount.to_owned())
+            .add_balance(&caller, &token_canister_id, amount.to_owned()) // 调用者对该币种存入金额
     });
-    DepositReceipt::Ok(amount)
+    DepositReceipt::Ok(amount) // 返回存入金额
 }
 
+// 把账户里所有的 icp 都存入
 async fn deposit_icp(caller: Principal) -> Result<Nat, DepositErr> {
-    let canister_id = ic_cdk::api::id();
+    let canister_id = ic_cdk::api::id(); // 当前 canister id
     let ledger_canister_id = STATE
         .with(|s| s.borrow().ledger)
         .unwrap_or(MAINNET_LEDGER_CANISTER_ID);
 
     let account = AccountIdentifier::new(&canister_id, &principal_to_subaccount(&caller));
 
+    // 获取余额参数
     let balance_args = ic_ledger_types::AccountBalanceArgs { account };
+    // 获取余额
     let balance = ic_ledger_types::account_balance(ledger_canister_id, balance_args)
         .await
         .map_err(|_| DepositErr::TransferFailure)?;
 
     if balance.e8s() < ICP_FEE {
+        // 余额小于费用
         return Err(DepositErr::BalanceLow);
     }
 
     let transfer_args = ic_ledger_types::TransferArgs {
         memo: Memo(0),
-        amount: balance - Tokens::from_e8s(ICP_FEE),
+        amount: balance - Tokens::from_e8s(ICP_FEE), // 转入扣除费用后的所有余额
         fee: Tokens::from_e8s(ICP_FEE),
         from_subaccount: Some(principal_to_subaccount(&caller)),
-        to: AccountIdentifier::new(&canister_id, &DEFAULT_SUBACCOUNT),
+        to: AccountIdentifier::new(&canister_id, &DEFAULT_SUBACCOUNT), // 转入本 canister
         created_at_time: None,
     };
     ic_ledger_types::transfer(ledger_canister_id, transfer_args)
@@ -93,13 +100,14 @@ async fn deposit_icp(caller: Principal) -> Result<Nat, DepositErr> {
     Ok((balance.e8s() - ICP_FEE).into())
 }
 
+// 把账户里所有的 token 都存入
 async fn deposit_token(caller: Principal, token: Principal) -> Result<Nat, DepositErr> {
-    let token = DIP20::new(token);
-    let dip_fee = token.get_metadata().await.fee;
+    let token = DIP20::new(token); // 构造 token 对象
+    let dip_fee = token.get_metadata().await.fee; // 获取转账费用
 
-    let allowance = token.allowance(caller, ic_cdk::api::id()).await;
+    let allowance = token.allowance(caller, ic_cdk::api::id()).await; // 获取允许本 canister id 的额度
 
-    let available = allowance - dip_fee;
+    let available = allowance - dip_fee; // 允许额度减去费用
 
     token
         .transfer_from(caller, ic_cdk::api::id(), available.to_owned())
@@ -109,45 +117,52 @@ async fn deposit_token(caller: Principal, token: Principal) -> Result<Nat, Depos
     Ok(available)
 }
 
+// 获取调用者在本交易所某币种的余额
 #[query(name = "getBalance")]
 #[candid_method(query, rename = "getBalance")]
 pub fn get_balance(token_canister_id: Principal) -> Nat {
     STATE.with(|s| s.borrow().exchange.get_balance(token_canister_id))
 }
 
+// 获取调用者在本交易所的所有代币余额
 #[query(name = "getBalances")]
 #[candid_method(query, rename = "getBalances")]
 pub fn get_balances() -> Vec<Balance> {
     STATE.with(|s| s.borrow().exchange.get_balances())
 }
 
+// 获取所有人的余额
 #[query(name = "getAllBalances")]
 #[candid_method(query, rename = "getAllBalances")]
 pub fn get_all_balances() -> Vec<Balance> {
     STATE.with(|s| s.borrow().exchange.get_all_balances())
 }
 
+// 查找订单
 #[update(name = "getOrder")]
 #[candid_method(update, rename = "getOrder")]
 pub fn get_order(order: OrderId) -> Option<Order> {
     STATE.with(|s| s.borrow().exchange.get_order(order))
 }
 
+// 获取所有订单
 #[update(name = "getOrders")]
 #[candid_method(update, rename = "getOrders")]
 pub fn get_orders() -> Vec<Order> {
     STATE.with(|s| s.borrow().exchange.get_all_orders())
 }
 
+// 获取存款地址
 #[update(name = "getDepositAddress")]
 #[candid_method(update, rename = "getDepositAddress")]
 pub fn get_deposit_address() -> AccountIdentifier {
-    let canister_id = ic_cdk::api::id();
-    let subaccount = principal_to_subaccount(&caller());
+    let canister_id = ic_cdk::api::id(); // 当前 canister id
+    let subaccount = principal_to_subaccount(&caller()); // ? 当前调用者的子账户
 
-    AccountIdentifier::new(&canister_id, &subaccount)
+    AccountIdentifier::new(&canister_id, &subaccount) // ? 不知道这个能干啥用
 }
 
+// 获取代币的符号
 #[update(name = "getSymbol")]
 #[candid_method(update, rename = "getSymbol")]
 pub async fn get_symbol(token_canister_id: Principal) -> String {
@@ -162,6 +177,7 @@ pub async fn get_symbol(token_canister_id: Principal) -> String {
     }
 }
 
+// 下单
 #[update(name = "placeOrder")]
 #[candid_method(update, rename = "placeOrder")]
 pub fn place_order(
@@ -180,12 +196,14 @@ pub fn place_order(
     })
 }
 
+// 取消订单
 #[update(name = "cancelOrder")]
 #[candid_method(update, rename = "cancelOrder")]
 pub fn cancel_order(order: OrderId) -> CancelOrderReceipt {
     STATE.with(|s| s.borrow_mut().exchange.cancel_order(order))
 }
 
+// 提现
 #[update]
 #[candid_method(update)]
 pub async fn withdraw(
@@ -215,6 +233,7 @@ pub async fn withdraw(
     }
 }
 
+// 提现 icp
 async fn withdraw_icp(amount: &Nat, account_id: AccountIdentifier) -> Result<Nat, WithdrawErr> {
     let caller = caller();
     let ledger_canister_id = STATE
@@ -269,6 +288,7 @@ async fn withdraw_icp(amount: &Nat, account_id: AccountIdentifier) -> Result<Nat
     Ok(amount.to_owned() + ICP_FEE)
 }
 
+// 提现代币
 async fn withdraw_token(
     token: Principal,
     amount: &Nat,
@@ -309,6 +329,7 @@ async fn withdraw_token(
     Ok(amount.to_owned() + dip_fee)
 }
 
+// 调用者 id
 #[query]
 #[candid_method(query)]
 pub fn whoami() -> Principal {
