@@ -1,11 +1,12 @@
 [package]
 name = "dip721_nft_container"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-ic-cdk = "0.3"
-ic-cdk-macros = "0.3"
+ic-cdk = "0.5.2"
+ic-cdk-macros = "0.5.2"
+candid = "0.7.4"
 include-base64 = "0.1"
 serde = { version = "1", features = ["derive"] }
 percent-encoding = "2.1"
