@@ -88,6 +88,7 @@ impl From<(RejectionCode, String)> for Error {
     }
 }
 
+// ? 不知道干啥的
 #[inspect_message]
 fn inspect_message() {
     if is_authorized()
@@ -97,11 +98,13 @@ fn inspect_message() {
     }
 }
 
+// 在不在管理员列表
 #[query]
 fn is_authorized() -> bool {
     STORAGE.read().custodians.contains(&api::caller())
 }
 
+// 设置管理员
 #[update]
 fn set_authorized(principal: Principal, authorized: bool) -> Result {
     if !is_authorized() {
@@ -123,12 +126,14 @@ enum DipError {
     Other,
 }
 
+// 注册 nft
 #[update]
 async fn register(nft: Nft) -> Result {
     if !is_authorized() {
         return Err(Error::Unauthorized);
     }
     if STORAGE.read().owned_nfts.contains(&nft) {
+        // 已经包含这个 nft
         return Ok(());
     }
     if let Ok((owner,)) =
@@ -136,15 +141,17 @@ async fn register(nft: Nft) -> Result {
             .await
     {
         if !matches!(owner, Ok(p) if p == api::id()) {
+            // 如果所有者不是当前 canister
             return Err(Error::NotOwner);
         }
     } else {
         return Err(Error::InvalidCanister);
     }
-    STORAGE.write().owned_nfts.insert(nft);
+    STORAGE.write().owned_nfts.insert(nft); // 插入 nft
     Ok(())
 }
 
+// 销毁 nft
 #[update]
 async fn burn(nft: Nft) -> Result {
     if !is_authorized() {
@@ -156,11 +163,13 @@ async fn burn(nft: Nft) -> Result {
     Ok(())
 }
 
+// 查询所有的 nft
 #[query]
 fn owned_nfts() -> Wrapper<MappedRwLockReadGuard<'static, BTreeSet<Nft>>> {
     Wrapper(RwLockReadGuard::map(STORAGE.read(), |s| &s.owned_nfts))
 }
 
+// 转移 nft
 #[update]
 async fn transfer(nft: Nft, target: Principal, notify: Option<bool>) -> Result {
     if !is_authorized() {
@@ -204,8 +213,10 @@ async fn transfer(nft: Nft, target: Principal, notify: Option<bool>) -> Result {
     Ok(())
 }
 
+// 接收到 nft 的通知
 #[update(name = "onDIP721Received")]
 fn on_dip721_received(_: Principal, _: Principal, tokenid: u64, _: Vec<u8>) {
+    // 居然都不检查一下，直接加入？？？
     STORAGE.write().owned_nfts.insert(Nft {
         canister: api::caller(),
         index: tokenid,
